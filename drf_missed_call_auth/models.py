@@ -1,10 +1,14 @@
 import uuid
+from datetime import timedelta
+
 from django.db import models
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
-from datetime import timedelta
+
+from .validators import phone_number_validator
 from .managers import CallSourceManager
 from .settings import api_settings
+
 
 
 class CallSourceNumber(models.Model):
@@ -16,7 +20,8 @@ class CallSourceNumber(models.Model):
         unique=True,
         db_index=True,
         verbose_name=_("phone number"),
-        help_text=_("The number in E.164 format used to initiate the missed call.")
+        help_text=_("The number in E.164 format used to initiate the missed call."),
+        validators=[phone_number_validator]
     )
     is_active = models.BooleanField(
         default=True,
@@ -29,6 +34,8 @@ class CallSourceNumber(models.Model):
         verbose_name=_("label"),
         help_text=_("Internal name to identify this specific line (e.g., 'Twilio US 01').")
     )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     objects = CallSourceManager()
 
@@ -53,7 +60,8 @@ class MissedCallVerification(models.Model):
     user_phone = models.CharField(
         max_length=32,
         db_index=True,
-        verbose_name=_("user phone number")
+        verbose_name=_("user phone number"),
+        validators=[phone_number_validator]
     )
     app_signature = models.CharField(
         max_length=255,
@@ -61,25 +69,24 @@ class MissedCallVerification(models.Model):
         verbose_name=_("application signature"),
         help_text=_("Unique hash identifying the mobile application binary.")
     )
-    # The 'Target' number the user must report back to the API
     expected_caller = models.ForeignKey(
         CallSourceNumber,
         on_delete=models.CASCADE,
         related_name='verifications',
         verbose_name=_("expected caller")
     )
-    is_verified = models.BooleanField(
-        default=False,
-        verbose_name=_("is verified")
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name=_("created at")
-    )
-    expires_at = models.DateTimeField(
-        verbose_name=_("expires at"),
-        db_index=True
-    )
+    
+    # Status Fields
+    is_verified = models.BooleanField(default=False, verbose_name=_("is verified"))
+    verified_at = models.DateTimeField(null=True, blank=True, verbose_name=_("verified at"))
+    
+    # Security & Metadata
+    ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name=_("IP address"))
+    attempt_count = models.PositiveSmallIntegerField(default=0, verbose_name=_("attempt count"))
+    
+    # Timing
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("created at"))
+    expires_at = models.DateTimeField(db_index=True, verbose_name=_("expires at"))
 
     class Meta:
         verbose_name = _("missed call verification")
@@ -87,6 +94,7 @@ class MissedCallVerification(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['user_phone', 'is_verified']),
+            models.Index(fields=['expires_at', 'is_verified']), # Optimized for cleanup tasks
         ]
 
     def save(self, *args, **kwargs):
@@ -96,13 +104,29 @@ class MissedCallVerification(models.Model):
 
     @property
     def is_expired(self) -> bool:
-        """Returns True if the current time is past the expiration."""
         return now() >= self.expires_at
 
     @property
     def is_valid(self) -> bool:
-        """Checks if the session is still within the validity window and not yet verified."""
-        return not self.is_verified and not self.is_expired
+        """
+        Checks if the session is still within the validity window, 
+        not yet verified, and hasn't exceeded attempt limits.
+        """
+        max_attempts = getattr(api_settings, 'MAX_VERIFICATION_ATTEMPTS', 3)
+        return (
+            not self.is_verified and 
+            not self.is_expired and 
+            self.attempt_count < max_attempts
+        )
+
+    @property
+    def time_remaining(self):
+        """Calculates time remaining for Admin display"""
+        if self.is_expired:
+            return _("Expired")
+        delta = self.expires_at - now()
+        minutes, seconds = divmod(int(delta.total_seconds()), 60)
+        return f"{minutes:02d}:{seconds:02d}"
 
     def __str__(self):
         return _("Verification for %(phone)s (Expected: %(caller)s)") % {
