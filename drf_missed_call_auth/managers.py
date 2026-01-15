@@ -1,8 +1,6 @@
-from typing import Optional
+from .models import CallSourceNumber
 from django.db import models
-
-if TYPE_CHECKING:
-    from .models import CallSourceNumber
+from typing import Optional
 
 
 class CallSourceManager(models.Manager):
