@@ -1,4 +1,3 @@
-from .models import CallSourceNumber
 from django.db import models
 from typing import Optional
 
@@ -15,7 +14,7 @@ class CallSourceManager(models.Manager):
         """
         return self.filter(is_active=True)
 
-    def get_random_sender(self, exclude_number: Optional[str] = None) -> Optional['CallSourceNumber']:
+    def get_random_sender(self, exclude_number: Optional[str] = None):
         """
         Picks a random active sender from the pool.
         
