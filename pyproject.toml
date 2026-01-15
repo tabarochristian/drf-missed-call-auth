@@ -45,9 +45,9 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/tabaro/django-rest-framework-missedcall"
-"Bug Tracker" = "https://github.com/tabaro/django-rest-framework-missedcall/issues"
 "Documentation" = "https://github.com/tabaro/django-rest-framework-missedcall#readme"
+"Bug Tracker" = "https://github.com/tabaro/django-rest-framework-missedcall/issues"
+"Homepage" = "https://github.com/tabaro/django-rest-framework-missedcall"
 
 [tool.setuptools]
 packages = ["rest_framework_missedcall"]

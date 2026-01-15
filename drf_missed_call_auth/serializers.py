@@ -4,7 +4,9 @@ from rest_framework import serializers
 
 from .models import MissedCallVerification, CallSourceNumber
 from .utils import normalize_phone_number, validate_app_signature, get_gateway
-from .settings import api_settings
+from .signals import missed_call_sent, verification_success
+from .exceptions import TelephonyError
+
 
 class MissedCallRequestSerializer(serializers.Serializer):
     """
@@ -22,17 +24,15 @@ class MissedCallRequestSerializer(serializers.Serializer):
         if not validate_app_signature(attrs['app_signature']):
             # Use a generic error for security to prevent fingerprinting
             raise serializers.ValidationError(_("Request could not be authorized."))
-        
+
         # 2. Pool Selection Logic
         pool_manager = CallSourceNumber.objects
-        
         # Performance: Get last used caller for this phone to avoid repeat usage
         last_caller_id = MissedCallVerification.objects.filter(
             user_phone=attrs['phone_number']
         ).values_list('expected_caller__phone_number', flat=True).first()
-        
-        caller = pool_manager.get_random_sender(exclude_number=last_caller_id)
 
+        caller = pool_manager.get_random_sender(exclude_number=last_caller_id)
         if not caller:
             raise serializers.ValidationError(_("Verification service is temporarily unavailable."))
 
@@ -50,20 +50,22 @@ class MissedCallRequestSerializer(serializers.Serializer):
                     app_signature=validated_data['app_signature'],
                     expected_caller=validated_data['chosen_caller']
                 )
-                
                 gateway = get_gateway()
                 call_sent = gateway.trigger_missed_call(
                     to_number=verification.user_phone,
                     from_number=verification.expected_caller.phone_number
                 )
-
                 if not call_sent:
-                    # Triggering a manual exception to rollback the DB transaction
-                    raise Exception("Telephony provider failed to initiate call.")
-                
+                    raise TelephonyError()  # Use custom exception
+
+                missed_call_sent.send(sender=self.__class__, verification_instance=verification)
                 return verification
+
+        except TelephonyError:
+            # Re-raise to be handled by DRF's exception handler
+            raise
         except Exception as e:
-            # For production, we raise a user-friendly error
+            # Fallback for unexpected errors (e.g., DB issues)
             raise serializers.ValidationError(_("Could not initiate verification call. Please try again."))
 
 
@@ -90,13 +92,21 @@ class MissedCallVerifySerializer(serializers.Serializer):
 
         # Strict Caller ID Match
         if session.expected_caller.phone_number != caller_id:
+            from .signals import verification_failed
+            verification_failed.send(
+                sender=self.__class__,
+                phone_number=phone,
+                expected=session.expected_caller.phone_number,
+                received=caller_id
+            )
             raise serializers.ValidationError(_("Verification failed. Incorrect caller identified."))
 
         attrs['session'] = session
         return attrs
 
     def update(self, instance, validated_data):
-        """Marks the session as verified."""
+        """Marks the session as verified and emits success signal."""
         instance.is_verified = True
-        instance.save()
+        instance.save(update_fields=['is_verified'])
+        verification_success.send(sender=self.__class__, verification_instance=instance)
         return instance

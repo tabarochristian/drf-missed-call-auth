@@ -1,10 +1,9 @@
-import random
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from django.db import models
-from django.utils.translation import gettext as _
 
 if TYPE_CHECKING:
     from .models import CallSourceNumber
+
 
 class CallSourceManager(models.Manager):
     """
@@ -18,33 +17,18 @@ class CallSourceManager(models.Manager):
         """
         return self.filter(is_active=True)
 
-    def get_random_sender(self, exclude_number: str = None) -> Optional['CallSourceNumber']:
+    def get_random_sender(self, exclude_number: Optional[str] = None) -> Optional['CallSourceNumber']:
         """
-        Picks a random sender from the available pool using an optimized 
-        database-friendly selection strategy.
+        Picks a random active sender from the pool.
         
-        Args:
-            exclude_number (str): Optional E.164 number to exclude (usually the last used).
+        If `exclude_number` is provided (e.g., the last used number), 
+        it will be excluded to prevent immediate reuse—improving user experience 
+        and reducing carrier filtering risk.
 
         Returns:
-            Optional[CallSourceNumber]: A random number instance or None if pool is empty.
+            A random CallSourceNumber instance, or None if no active numbers are available.
         """
         queryset = self.get_active_pool()
-
         if exclude_number:
-            filtered_queryset = queryset.exclude(phone_number=exclude_number)
-            # Only use filtered queryset if it doesn't leave us with an empty pool
-            if filtered_queryset.exists():
-                queryset = filtered_queryset
-
-        count = queryset.count()
-        if count == 0:
-            # No numbers available in the pool. 
-            # High-level implementation should log this for the admin.
-            return None
-
-        # PERFORMANCE OPTIMIZATION:
-        # Instead of list(queryset), we pick a random index and use array slicing.
-        # This results in a LIMIT 1 OFFSET X query, which is extremely fast.
-        random_index = random.randint(0, count - 1)
-        return queryset[random_index]
+            queryset = queryset.exclude(phone_number=exclude_number)
+        return queryset.order_by('?').first()

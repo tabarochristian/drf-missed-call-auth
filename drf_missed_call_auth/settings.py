@@ -1,65 +1,36 @@
 from django.conf import settings
-from django.test.signals import setting_changed
-from rest_framework.settings import APISettings as _APISettings
+from django.core.exceptions import ImproperlyConfigured
+from rest_framework.settings import APISettings
 
-# The key that developers will use in their Django settings.py
-USER_SETTINGS = getattr(settings, 'REST_FRAMEWORK_MISSEDCALL', None)
+USER_SETTINGS = getattr(settings, 'MISSEDCALL_AUTH', {})
 
-# Intelligent defaults for a zero-effort flash-call flow
 DEFAULTS = {
-    # GATEWAY: The class that interacts with Twilio/Provider APIs
-    'GATEWAY_CLASS': 'rest_framework_missedcall.gateways.twilio.TwilioGateway',
-    
-    # POOL: The strategy for picking the next caller ('random' or 'round_robin')
-    'POOL_STRATEGY': 'random',
-    
-    # SECURITY: Whether the phone signature is mandatory for every request
-    # This identifies the mobile app binary (Android/iOS)
+    # List of allowed app signatures (e.g., SHA-256 hashes of your APK/IPA)
+    'ALLOWED_APP_SIGNATURES': [],
+
+    # Require app signature? If False, any non-empty string passes.
     'REQUIRE_SIGNATURE': True,
-    
-    # TIMEOUT: Seconds before the missed call verification session expires
-    # Usually short (e.g., 2 minutes) because flash calls are near-instant
-    'VALIDITY_PERIOD': 120,
-    
-    # AUTH: The model used to generate tokens upon successful verification
-    'TOKEN_MODEL': 'rest_framework.authtoken.models.Token',
-    
-    # PROVIDER CONFIG: Placeholders for Twilio credentials
-    'TWILIO_ACCOUNT_SID': None,
-    'TWILIO_AUTH_TOKEN': None,
+
+    # Session validity in seconds (default: 5 minutes)
+    'VALIDITY_PERIOD': 300,
+
+    # Optional: DRF Token model path (e.g., 'rest_framework.authtoken.Token')
+    'TOKEN_MODEL': None,
+
+    # Twilio credentials (can also be set via env vars)
+    'TWILIO_ACCOUNT_SID': '',
+    'TWILIO_AUTH_TOKEN': '',
 }
 
-# List of settings that are classes or modules (importable strings)
-# This allows developers to swap components without touching package code
-IMPORT_STRINGS = [
-    'GATEWAY_CLASS',
-    'TOKEN_MODEL',
-]
+# Apply settings
+api_settings = APISettings(USER_SETTINGS, DEFAULTS)
 
-class APISettings(_APISettings):
-    """
-    Internal settings class that handles lazy loading and string imports.
-    Mirroring the official DRF settings architecture.
-    """
-    def __getattr__(self, attr):
-        if attr not in self.defaults:
-            raise AttributeError(
-                f"Invalid setting: '{attr}'. Please check your 'REST_FRAMEWORK_MISSEDCALL' "
-                f"configuration in settings.py or refer to the package documentation."
-            )
-        return super().__getattr__(attr)
 
-# Initialize the settings object for the package
-api_settings = APISettings(USER_SETTINGS, DEFAULTS, IMPORT_STRINGS)
-
-def reload_api_settings(*args, **kwargs):
-    """
-    Enables dynamic updates to settings, crucial for high-level 
-    testing environments and @override_settings decorators.
-    """
-    global api_settings
-    setting = kwargs.get('setting')
-    if setting == 'REST_FRAMEWORK_MISSEDCALL':
-        api_settings = APISettings(kwargs.get('value'), DEFAULTS, IMPORT_STRINGS)
-
-setting_changed.connect(reload_api_settings)
+# Optional: Validate critical settings at startup
+def validate_settings():
+    if api_settings.REQUIRE_SIGNATURE and not api_settings.ALLOWED_APP_SIGNATURES:
+        raise ImproperlyConfigured(
+            "MISSEDCALL_AUTH['REQUIRE_SIGNATURE'] is True, "
+            "but 'ALLOWED_APP_SIGNATURES' is empty. "
+            "Either provide allowed signatures or set REQUIRE_SIGNATURE=False."
+        )

@@ -2,21 +2,10 @@ from django.apps import AppConfig
 from django.core import checks
 from django.utils.translation import gettext_lazy as _
 
-class MissedCallConfig(AppConfig):
-    name = 'rest_framework_missedcall'
-    verbose_name = _("Missed Call Verification")
-    default_auto_field = 'django.db.models.BigAutoField'
-
-    def ready(self):
-        """
-        Register system checks when the app is ready.
-        """
-        # Register the configuration validation check
-        checks.register(validate_settings, checks.Tags.security)
 
 def validate_settings(app_configs, **kwargs):
     """
-    Django System Check to ensure Twilio and Pool settings are present.
+    Django System Check to ensure critical settings are configured.
     Run via: python manage.py check
     """
     from .settings import api_settings
@@ -27,7 +16,7 @@ def validate_settings(app_configs, **kwargs):
         errors.append(
             checks.Warning(
                 _("Twilio credentials are missing."),
-                hint=_("Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in your settings."),
+                hint=_("Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in your settings or environment variables."),
                 id='rfm.W001',
             )
         )
@@ -37,9 +26,21 @@ def validate_settings(app_configs, **kwargs):
         errors.append(
             checks.Error(
                 _("REQUIRE_SIGNATURE is enabled but no ALLOWED_APP_SIGNATURES are defined."),
-                hint=_("Add a list of valid mobile app hashes to your configuration."),
+                hint=_("Add a list of valid mobile app hashes (e.g., SHA-256) to MISSEDCALL_AUTH['ALLOWED_APP_SIGNATURES']."),
                 id='rfm.E001',
             )
         )
 
     return errors
+
+
+class MissedCallConfig(AppConfig):
+    name = 'rest_framework_missedcall'
+    verbose_name = _("Missed Call Verification")
+    default_auto_field = 'django.db.models.BigAutoField'
+
+    def ready(self):
+        """
+        Register system checks when the app is ready.
+        """
+        checks.register(validate_settings, checks.Tags.security)
