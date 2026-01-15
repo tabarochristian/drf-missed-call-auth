@@ -1,5 +1,13 @@
 include LICENSE
 include README.md
-recursive-include rest_framework_missedcall/locale *.po *.mo
+include IMPROVEMENTS.md
+include INSTALLATION_GUIDE.md
+include SUMMARY.md
+
+recursive-include drf_missed_call_auth *.py
+recursive-include drf_missed_call_auth/migrations *.py
+recursive-include drf_missed_call_auth/locale *.po *.mo
+
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store

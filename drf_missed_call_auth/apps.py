@@ -35,7 +35,7 @@ def validate_settings(app_configs, **kwargs):
 
 
 class MissedCallConfig(AppConfig):
-    name = 'rest_framework_missedcall'
+    name = 'drf_missed_call_auth'
     verbose_name = _("Missed Call Verification")
     default_auto_field = 'django.db.models.BigAutoField'
 
